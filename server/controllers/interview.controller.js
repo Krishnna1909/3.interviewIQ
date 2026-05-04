@@ -1,8 +1,14 @@
 import fs from "fs"
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
-import { askAi } from "../services/openRouter.service.js";
+import { askAi } from "../services/ai.service.js";
 import User from "../models/user.model.js";
 import Interview from "../models/interview.model.js";
+
+// Helper to strip markdown code fences and parse JSON safely
+const parseJSON = (text) => {
+  const cleaned = text.replace(/```json|```/g, "").trim();
+  return JSON.parse(cleaned);
+};
 
 export const analyzeResume = async (req, res) => {
   try {
@@ -27,7 +33,6 @@ export const analyzeResume = async (req, res) => {
       resumeText += pageText + "\n";
     }
 
-
     resumeText = resumeText
       .replace(/\s+/g, " ")
       .trim();
@@ -38,7 +43,7 @@ export const analyzeResume = async (req, res) => {
         content: `
 Extract structured data from resume.
 
-Return strictly JSON:
+Return strictly JSON with no markdown, no code fences, no extra text:
 
 {
   "role": "string",
@@ -54,13 +59,11 @@ Return strictly JSON:
       }
     ];
 
-
     const aiResponse = await askAi(messages)
 
-    const parsed = JSON.parse(aiResponse);
+    const parsed = parseJSON(aiResponse); // ✅ fixed
 
     fs.unlinkSync(filepath)
-
 
     res.json({
       role: parsed.role,
@@ -134,7 +137,6 @@ export const generateQuestion = async (req, res) => {
     }
 
     const messages = [
-
       {
         role: "system",
         content: `
@@ -161,25 +163,21 @@ Question 3 → medium
 Question 4 → medium  
 Question 5 → hard  
 
-Make questions based on the candidate’s role, experience,interviewMode, projects, skills, and resume details.
+Make questions based on the candidate's role, experience,interviewMode, projects, skills, and resume details.
 `
-      }
-      ,
+      },
       {
         role: "user",
         content: userPrompt
       }
     ];
 
-
     const aiResponse = await askAi(messages)
 
     if (!aiResponse || !aiResponse.trim()) {
-           
       return res.status(500).json({
         message: "AI returned empty response."
       });
-
     }
 
     const questionsArray = aiResponse
@@ -189,7 +187,6 @@ Make questions based on the candidate’s role, experience,interviewMode, projec
       .slice(0, 5);
 
     if (questionsArray.length === 0) {
-      
       return res.status(500).json({
         message: "AI failed to generate questions."
       });
@@ -218,7 +215,7 @@ Make questions based on the candidate’s role, experience,interviewMode, projec
       questions: interview.questions
     });
   } catch (error) {
-    return res.status(500).json({message:`failed to create interview ${error}`})
+    return res.status(500).json({ message: `failed to create interview ${error}` })
   }
 }
 
@@ -256,7 +253,6 @@ export const submitAnswer = async (req, res) => {
       });
     }
 
-
     const messages = [
       {
         role: "system",
@@ -290,7 +286,7 @@ Feedback Rules:
 - Do NOT explain scoring.
 - Keep tone professional and honest.
 
-Return ONLY valid JSON in this format:
+Return ONLY valid JSON with no markdown, no code fences, no extra text:
 
 {
   "confidence": number,
@@ -300,8 +296,7 @@ Return ONLY valid JSON in this format:
   "feedback": "short human feedback"
 }
 `
-      }
-      ,
+      },
       {
         role: "user",
         content: `
@@ -311,11 +306,9 @@ Answer: ${answer}
       }
     ];
 
-
     const aiResponse = await askAi(messages)
 
-
-    const parsed = JSON.parse(aiResponse);
+    const parsed = parseJSON(aiResponse); // ✅ fixed
 
     question.answer = answer;
     question.confidence = parsed.confidence;
@@ -325,21 +318,19 @@ Answer: ${answer}
     question.feedback = parsed.feedback;
     await interview.save();
 
-
-    return res.status(200).json({feedback :parsed.feedback})
+    return res.status(200).json({ feedback: parsed.feedback })
   } catch (error) {
-    return res.status(500).json({message:`failed to submit answer ${error}`})
-
+    return res.status(500).json({ message: `failed to submit answer ${error}` })
   }
 }
 
 
-export const finishInterview = async (req,res) => {
+export const finishInterview = async (req, res) => {
   try {
-    const {interviewId} = req.body
+    const { interviewId } = req.body
     const interview = await Interview.findById(interviewId)
-    if(!interview){
-      return res.status(400).json({message:"failed to find Interview"})
+    if (!interview) {
+      return res.status(400).json({ message: "failed to find Interview" })
     }
 
     const totalQuestions = interview.questions.length;
@@ -356,21 +347,10 @@ export const finishInterview = async (req,res) => {
       totalCorrectness += q.correctness || 0;
     });
 
-    const finalScore = totalQuestions
-      ? totalScore / totalQuestions
-      : 0;
-
-    const avgConfidence = totalQuestions
-      ? totalConfidence / totalQuestions
-      : 0;
-
-    const avgCommunication = totalQuestions
-      ? totalCommunication / totalQuestions
-      : 0;
-
-    const avgCorrectness = totalQuestions
-      ? totalCorrectness / totalQuestions
-      : 0;
+    const finalScore = totalQuestions ? totalScore / totalQuestions : 0;
+    const avgConfidence = totalQuestions ? totalConfidence / totalQuestions : 0;
+    const avgCommunication = totalQuestions ? totalCommunication / totalQuestions : 0;
+    const avgCorrectness = totalQuestions ? totalCorrectness / totalQuestions : 0;
 
     interview.finalScore = finalScore;
     interview.status = "completed";
@@ -378,7 +358,7 @@ export const finishInterview = async (req,res) => {
     await interview.save();
 
     return res.status(200).json({
-       finalScore: Number(finalScore.toFixed(1)),
+      finalScore: Number(finalScore.toFixed(1)),
       confidence: Number(avgConfidence.toFixed(1)),
       communication: Number(avgCommunication.toFixed(1)),
       correctness: Number(avgCorrectness.toFixed(1)),
@@ -392,32 +372,31 @@ export const finishInterview = async (req,res) => {
       })),
     })
   } catch (error) {
-    return res.status(500).json({message:`failed to finish Interview ${error}`})
+    return res.status(500).json({ message: `failed to finish Interview ${error}` })
   }
 }
 
 
-export const getMyInterviews = async (req,res) => {
+export const getMyInterviews = async (req, res) => {
   try {
-    const interviews = await Interview.find({userId:req.userId})
-    .sort({ createdAt: -1 })
-    .select("role experience mode finalScore status createdAt");
+    const interviews = await Interview.find({ userId: req.userId })
+      .sort({ createdAt: -1 })
+      .select("role experience mode finalScore status createdAt");
 
     return res.status(200).json(interviews)
 
   } catch (error) {
-     return res.status(500).json({message:`failed to find currentUser Interview ${error}`})
+    return res.status(500).json({ message: `failed to find currentUser Interview ${error}` })
   }
 }
 
-export const getInterviewReport = async (req,res) => {
+export const getInterviewReport = async (req, res) => {
   try {
     const interview = await Interview.findById(req.params.id)
 
     if (!interview) {
       return res.status(404).json({ message: "Interview not found" });
     }
-
 
     const totalQuestions = interview.questions.length;
 
@@ -430,19 +409,12 @@ export const getInterviewReport = async (req,res) => {
       totalCommunication += q.communication || 0;
       totalCorrectness += q.correctness || 0;
     });
-    const avgConfidence = totalQuestions
-      ? totalConfidence / totalQuestions
-      : 0;
 
-    const avgCommunication = totalQuestions
-      ? totalCommunication / totalQuestions
-      : 0;
+    const avgConfidence = totalQuestions ? totalConfidence / totalQuestions : 0;
+    const avgCommunication = totalQuestions ? totalCommunication / totalQuestions : 0;
+    const avgCorrectness = totalQuestions ? totalCorrectness / totalQuestions : 0;
 
-    const avgCorrectness = totalQuestions
-      ? totalCorrectness / totalQuestions
-      : 0;
-
-       return res.json({
+    return res.json({
       finalScore: interview.finalScore,
       confidence: Number(avgConfidence.toFixed(1)),
       communication: Number(avgCommunication.toFixed(1)),
@@ -451,10 +423,6 @@ export const getInterviewReport = async (req,res) => {
     });
 
   } catch (error) {
-    return res.status(500).json({message:`failed to find currentUser Interview report ${error}`})
+    return res.status(500).json({ message: `failed to find currentUser Interview report ${error}` })
   }
 }
-
-
-
-
